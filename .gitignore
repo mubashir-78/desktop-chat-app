@@ -1,0 +1,10 @@
+node_modules/
+dist/
+out/
+release/
+.env
+*.log
+*.blockmap
+*.pfx
+*.p12
+electron-builder.env
