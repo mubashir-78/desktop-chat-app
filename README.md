@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # PSS Nexus Chat — Desktop (Electron)
 
 Windows desktop client for the PSS Nexus chat web app (Slack-style wrapper).
@@ -55,7 +56,7 @@ Then run `npm run dev` in `chat-system` and `npm start` here.
 npm run build
 ```
 
-Output: `dist/PSS Nexus Chat Setup 1.0.0.exe`
+Output: `dist/PSS Nexus Chat Setup 1.1.0.exe`
 
 Portable exe (no installer):
 
@@ -78,6 +79,7 @@ npm run build
 - Single instance (second launch focuses existing window)
 - External links open in default browser
 - Taskbar badge when page title includes unread count `(3)`
+- Auto-update from GitHub releases (after this version is installed once)
 
 ## Project layout
 
