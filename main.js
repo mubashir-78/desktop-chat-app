@@ -238,10 +238,7 @@ function buildTrayMenu() {
   if (updateReady) {
     template.push({
       label: "Restart to update",
-      click: () => {
-        isQuitting = true;
-        autoUpdater.quitAndInstall(false, true);
-      },
+      click: () => installDownloadedUpdate(),
     });
   }
   template.push(
@@ -266,6 +263,22 @@ function createTray() {
   tray.on("double-click", () => showMainWindow());
 }
 
+function installDownloadedUpdate() {
+  isQuitting = true;
+  if (tray) {
+    tray.destroy();
+    tray = null;
+  }
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.removeAllListeners("close");
+    mainWindow.destroy();
+    mainWindow = null;
+  }
+  // Silent install, then reopen. A visible installer loses the race with the
+  // tray process and the app closes before the files are replaced.
+  autoUpdater.quitAndInstall(true, true);
+}
+
 function initAutoUpdate() {
   if (isDev) return;
   autoUpdater.autoDownload = true;
@@ -284,8 +297,7 @@ function initAutoUpdate() {
         silent: true,
       });
       notice.on("click", () => {
-        isQuitting = true;
-        autoUpdater.quitAndInstall(false, true);
+        installDownloadedUpdate();
       });
       notice.show();
     }
@@ -503,6 +515,10 @@ if (gotLock) app.whenReady().then(() => {
 
 app.on("before-quit", () => {
   isQuitting = true;
+  if (tray) {
+    tray.destroy();
+    tray = null;
+  }
 });
 
 app.on("window-all-closed", () => {
