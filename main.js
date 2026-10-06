@@ -18,6 +18,11 @@ const { autoUpdater } = require("electron-updater");
 const APP_URL =
   process.env.APP_URL?.trim() || "https://pssnexus-chatapp.vercel.app";
 const APP_NAME = "PSS Nexus Chat";
+const APP_USER_MODEL_ID = "com.pssnexus.chat";
+
+if (process.platform === "win32") {
+  app.setAppUserModelId(APP_USER_MODEL_ID);
+}
 const isDev = process.env.NODE_ENV === "development" || !app.isPackaged;
 const isAutoStart = process.argv.includes("--autostart");
 
@@ -31,6 +36,7 @@ let appLoaded = false;
 let loadAttempt = 0;
 let updateReady = false;
 let unreadCount = 0;
+let pendingNavigation = null;
 const liveNotifications = new Set();
 
 const gotLock = app.requestSingleInstanceLock();
@@ -104,13 +110,7 @@ function showNativeNotification({ title, body, url }) {
   const release = () => liveNotifications.delete(notification);
   notification.on("click", () => {
     release();
-    showMainWindow();
-    if (!url || !mainWindow) return;
-    if (rendererReady) {
-      mainWindow.webContents.send("desktop:navigate", url);
-    } else {
-      navigateMainWindow(url);
-    }
+    openFromNotification(url);
   });
   notification.on("close", release);
   notification.on("failed", release);
@@ -213,6 +213,25 @@ function applyUnreadBadge(count) {
     return;
   }
   if (increased) mainWindow.flashFrame(true);
+}
+
+function deliverNavigation(url) {
+  if (!url || !mainWindow || mainWindow.isDestroyed()) return;
+  pendingNavigation = url;
+  if (!rendererReady) {
+    navigateMainWindow(url);
+    return;
+  }
+  mainWindow.webContents.send("desktop:navigate", url);
+  pendingNavigation = null;
+}
+
+function openFromNotification(url) {
+  showMainWindow();
+  if (!url) return;
+  pendingNavigation = url;
+  deliverNavigation(url);
+  setTimeout(() => deliverNavigation(pendingNavigation), 400);
 }
 
 function showMainWindow() {
@@ -462,6 +481,7 @@ function registerIpcHandlers() {
 
   ipcMain.on("desktop:renderer-ready", () => {
     rendererReady = true;
+    if (pendingNavigation) deliverNavigation(pendingNavigation);
   });
 }
 
@@ -496,10 +516,6 @@ if (gotLock) app.whenReady().then(() => {
   initAutoUpdate();
   configureAutoLaunch();
   registerIpcHandlers();
-
-  if (Notification.isSupported()) {
-    app.setAppUserModelId("com.pssnexus.chat");
-  }
 
   createWindow();
   createTray();
