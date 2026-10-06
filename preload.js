@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld("desktopApp", {
     process.argv.find((arg) => arg.startsWith("--app-version="))?.split("=")[1] ??
     null,
   showNotification: (payload) => ipcRenderer.invoke("show-notification", payload),
+  setUnreadCount: (count) => ipcRenderer.send("desktop:unread-count", count),
   focusWindow: () => ipcRenderer.invoke("focus-window"),
   onSystemEvent: (cb) => subscribe("desktop:system", cb),
   onNavigate: (cb) => subscribe("desktop:navigate", cb),

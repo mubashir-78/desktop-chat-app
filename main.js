@@ -30,6 +30,7 @@ let rendererReady = false;
 let appLoaded = false;
 let loadAttempt = 0;
 let updateReady = false;
+let unreadCount = 0;
 const liveNotifications = new Set();
 
 const gotLock = app.requestSingleInstanceLock();
@@ -118,6 +119,102 @@ function showNativeNotification({ title, body, url }) {
   return true;
 }
 
+const BADGE_DIGITS = {
+  "0": ["111", "101", "101", "101", "111"],
+  "1": ["010", "110", "010", "010", "111"],
+  "2": ["111", "001", "111", "100", "111"],
+  "3": ["111", "001", "111", "001", "111"],
+  "4": ["101", "101", "111", "001", "001"],
+  "5": ["111", "100", "111", "001", "111"],
+  "6": ["111", "100", "111", "101", "111"],
+  "7": ["111", "001", "001", "001", "001"],
+  "8": ["111", "101", "111", "101", "111"],
+  "9": ["111", "101", "111", "001", "111"],
+  "+": ["000", "010", "111", "010", "000"],
+};
+
+function paintBadgePixels(buffer, size, originX, originY, rows, scale) {
+  rows.forEach((row, dy) => {
+    for (let dx = 0; dx < row.length; dx += 1) {
+      if (row[dx] !== "1") continue;
+      for (let sy = 0; sy < scale; sy += 1) {
+        for (let sx = 0; sx < scale; sx += 1) {
+          const x = originX + dx * scale + sx;
+          const y = originY + dy * scale + sy;
+          if (x < 0 || y < 0 || x >= size || y >= size) continue;
+          const index = (y * size + x) * 4;
+          buffer[index] = 255;
+          buffer[index + 1] = 255;
+          buffer[index + 2] = 255;
+          buffer[index + 3] = 255;
+        }
+      }
+    }
+  });
+}
+
+function createBadgeImage(count) {
+  const size = 32;
+  const buffer = Buffer.alloc(size * size * 4);
+  const radius = 15;
+  for (let y = 0; y < size; y += 1) {
+    for (let x = 0; x < size; x += 1) {
+      const dx = x - 15.5;
+      const dy = y - 15.5;
+      if (dx * dx + dy * dy > radius * radius) continue;
+      const index = (y * size + x) * 4;
+      buffer[index] = 0x3a;
+      buffer[index + 1] = 0x1c;
+      buffer[index + 2] = 0xe0;
+      buffer[index + 3] = 255;
+    }
+  }
+
+  const label = count > 9 ? "9+" : String(count);
+  const scale = 2;
+  const glyphWidth = 3 * scale;
+  const gap = scale;
+  const textWidth = label.length * glyphWidth + (label.length - 1) * gap;
+  let cursor = Math.round((size - textWidth) / 2);
+  const top = Math.round((size - 5 * scale) / 2);
+  for (const character of label) {
+    paintBadgePixels(buffer, size, cursor, top, BADGE_DIGITS[character], scale);
+    cursor += glyphWidth + gap;
+  }
+
+  return nativeImage.createFromBitmap(buffer, { width: size, height: size });
+}
+
+function applyUnreadBadge(count) {
+  const next = Number.isFinite(count) && count > 0 ? Math.min(99, Math.floor(count)) : 0;
+  const increased = next > unreadCount;
+  unreadCount = next;
+
+  if (process.platform === "darwin") {
+    app.setBadgeCount(next);
+  }
+
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+
+  if (process.platform === "win32") {
+    if (next === 0) {
+      mainWindow.setOverlayIcon(null, "");
+    } else {
+      mainWindow.setOverlayIcon(createBadgeImage(next), `${next} unread`);
+    }
+  } else if (process.platform !== "darwin") {
+    app.setBadgeCount(next);
+  }
+
+  const needsAttention =
+    next > 0 && (!mainWindow.isVisible() || !mainWindow.isFocused());
+  if (!needsAttention) {
+    mainWindow.flashFrame(false);
+    return;
+  }
+  if (increased) mainWindow.flashFrame(true);
+}
+
 function showMainWindow() {
   if (!mainWindow) {
     createWindow(true);
@@ -128,6 +225,7 @@ function showMainWindow() {
   }
   mainWindow.show();
   mainWindow.focus();
+  mainWindow.flashFrame(false);
 }
 
 function buildTrayMenu() {
@@ -250,13 +348,6 @@ function createWindow(showOnReady = !isAutoStart) {
     }
   });
 
-  mainWindow.webContents.on("page-title-updated", (_event, title) => {
-    if (process.platform === "darwin" && mainWindow) {
-      const unreadMatch = title.match(/\((\d+)\)/);
-      app.setBadgeCount(unreadMatch ? Number(unreadMatch[1]) : 0);
-    }
-  });
-
   mainWindow.on("close", (event) => {
     if (!isQuitting) {
       event.preventDefault();
@@ -303,6 +394,7 @@ function createWindow(showOnReady = !isAutoStart) {
 
   for (const ev of ["show", "hide", "focus", "blur", "minimize", "restore"]) {
     mainWindow.on(ev, () => {
+      if (ev === "focus" || ev === "show") mainWindow?.flashFrame(false);
       mainWindow?.webContents.send("desktop:system", {
         type: `window-${ev}`,
         at: Date.now(),
@@ -350,6 +442,10 @@ function registerIpcHandlers() {
 
   ipcMain.handle("focus-window", () => {
     showMainWindow();
+  });
+
+  ipcMain.on("desktop:unread-count", (_event, count) => {
+    applyUnreadBadge(Number(count) || 0);
   });
 
   ipcMain.on("desktop:renderer-ready", () => {
