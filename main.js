@@ -1,6 +1,7 @@
 const {
   app,
   BrowserWindow,
+  dialog,
   Tray,
   Menu,
   shell,
@@ -282,6 +283,29 @@ function createTray() {
   tray.on("double-click", () => showMainWindow());
 }
 
+async function promptToInstallUpdate() {
+  if (!updateReady) return;
+  const parent = mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined;
+  if (parent) {
+    if (parent.isMinimized()) parent.restore();
+    parent.show();
+  }
+  const dialogOptions = {
+    type: "info",
+    buttons: ["Update", "Later"],
+    defaultId: 0,
+    cancelId: 1,
+    noLink: true,
+    title: APP_NAME,
+    message: "A new version is ready",
+    detail: "Click Update to install it now. The app will close and open again.",
+  };
+  const result = parent
+    ? await dialog.showMessageBox(parent, dialogOptions)
+    : await dialog.showMessageBox(dialogOptions);
+  if (result.response === 0) installDownloadedUpdate();
+}
+
 function installDownloadedUpdate() {
   isQuitting = true;
   if (tray) {
@@ -320,6 +344,7 @@ function initAutoUpdate() {
       });
       notice.show();
     }
+    void promptToInstallUpdate();
   });
 
   const check = () => {
