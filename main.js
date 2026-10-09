@@ -24,6 +24,14 @@ const APP_USER_MODEL_ID = "com.pssnexus.chat";
 if (process.platform === "win32") {
   app.setAppUserModelId(APP_USER_MODEL_ID);
 }
+
+// Google DNS-over-HTTPS (8.8.8.8 / 8.8.4.4). Set before ready so file and
+// image requests do not depend on the local resolver.
+app.commandLine.appendSwitch("dns-over-https-mode", "secure");
+app.commandLine.appendSwitch(
+  "dns-over-https-templates",
+  "https://dns.google/dns-query"
+);
 const isDev = process.env.NODE_ENV === "development" || !app.isPackaged;
 const isAutoStart = process.argv.includes("--autostart");
 
