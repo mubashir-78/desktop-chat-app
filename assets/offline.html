@@ -26,13 +26,19 @@
     <div>
       <h1>Can't reach PSS Nexus Chat</h1>
       <p id="status">Retrying…</p>
-      <button type="button" onclick="location.reload()">Retry</button>
+      <button type="button" id="retry">Retry</button>
     </div>
     <script>
       const params = new URLSearchParams(location.search);
       const seconds = Math.round(Number(params.get("retryMs") || 5000) / 1000);
-      document.getElementById("status").textContent =
-        "Retrying in " + seconds + "s";
+      const status = document.getElementById("status");
+      status.textContent = "Retrying in " + seconds + "s";
+      document.getElementById("retry").addEventListener("click", () => {
+        status.textContent = "Retrying…";
+        if (window.desktopApp && window.desktopApp.retryNow) {
+          window.desktopApp.retryNow();
+        }
+      });
     </script>
   </body>
 </html>

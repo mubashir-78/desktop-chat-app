@@ -18,4 +18,5 @@ contextBridge.exposeInMainWorld("desktopApp", {
   onSystemEvent: (cb) => subscribe("desktop:system", cb),
   onNavigate: (cb) => subscribe("desktop:navigate", cb),
   rendererReady: () => ipcRenderer.send("desktop:renderer-ready"),
+  retryNow: () => ipcRenderer.invoke("desktop:retry-now"),
 });

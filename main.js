@@ -25,13 +25,6 @@ if (process.platform === "win32") {
   app.setAppUserModelId(APP_USER_MODEL_ID);
 }
 
-// Google DNS-over-HTTPS (8.8.8.8 / 8.8.4.4). Set before ready so file and
-// image requests do not depend on the local resolver.
-app.commandLine.appendSwitch("dns-over-https-mode", "secure");
-app.commandLine.appendSwitch(
-  "dns-over-https-templates",
-  "https://dns.google/dns-query"
-);
 const isDev = process.env.NODE_ENV === "development" || !app.isPackaged;
 const isAutoStart = process.argv.includes("--autostart");
 
@@ -43,6 +36,7 @@ let isQuitting = false;
 let rendererReady = false;
 let appLoaded = false;
 let loadAttempt = 0;
+let retryTimer = null;
 let updateReady = false;
 let unreadCount = 0;
 let pendingNavigation = null;
@@ -444,16 +438,32 @@ function createWindow(showOnReady = !isAutoStart) {
       Math.min(loadAttempt, 4)
     ];
     loadAttempt += 1;
+    clearRetryTimer();
     mainWindow?.loadFile(path.join(__dirname, "assets", "offline.html"), {
       query: { retryMs: String(delay), reason: desc },
     });
-    setTimeout(() => {
-      if (!appLoaded) mainWindow?.loadURL(APP_URL).catch(() => {});
+    retryTimer = setTimeout(() => {
+      retryTimer = null;
+      if (!appLoaded) void loadChat();
     }, delay);
+  });
+  wc.on("before-input-event", (event, input) => {
+    if (input.type !== "keyDown") return;
+    const refresh =
+      input.key === "F5" ||
+      ((input.key === "r" || input.key === "R") &&
+        input.control &&
+        !input.alt &&
+        !input.meta);
+    if (!refresh || !isOfflinePage(wc.getURL())) return;
+    event.preventDefault();
+    void loadChat({ resetAttempts: true });
   });
   wc.on("render-process-gone", (_event, details) => {
     if (details.reason === "clean-exit") return;
-    setTimeout(() => mainWindow?.loadURL(APP_URL).catch(() => {}), 1000);
+    setTimeout(() => {
+      void loadChat({ resetAttempts: true });
+    }, 1000);
   });
 
   for (const ev of ["show", "hide", "focus", "blur", "minimize", "restore"]) {
@@ -512,6 +522,8 @@ function registerIpcHandlers() {
     applyUnreadBadge(Number(count) || 0);
   });
 
+  ipcMain.handle("desktop:retry-now", () => loadChat({ resetAttempts: true }));
+
   ipcMain.on("desktop:renderer-ready", () => {
     rendererReady = true;
     if (pendingNavigation) deliverNavigation(pendingNavigation);
@@ -529,7 +541,7 @@ function registerSystemEvents() {
     powerMonitor.on(ev, () => {
       sendSystem(ev);
       if ((ev === "resume" || ev === "unlock-screen") && !appLoaded) {
-        mainWindow?.loadURL(APP_URL).catch(() => {});
+        void loadChat({ resetAttempts: true });
       }
     });
   }
@@ -539,11 +551,45 @@ function registerSystemEvents() {
     if (now === online) return;
     online = now;
     sendSystem(now ? "online" : "offline");
-    if (now && !appLoaded) mainWindow?.loadURL(APP_URL).catch(() => {});
+    if (now && !appLoaded) void loadChat({ resetAttempts: true });
   }, 15_000);
 }
 
+function clearRetryTimer() {
+  if (!retryTimer) return;
+  clearTimeout(retryTimer);
+  retryTimer = null;
+}
+
+function isOfflinePage(url) {
+  return url.startsWith("file:") && url.includes("offline.html");
+}
+
+async function loadChat({ resetAttempts = false } = {}) {
+  clearRetryTimer();
+  if (resetAttempts) loadAttempt = 0;
+  try {
+    await session.defaultSession.clearHostResolverCache();
+  } catch {
+    // A stuck lookup should not block the new attempt.
+  }
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  mainWindow.loadURL(APP_URL).catch(() => {});
+}
+
+function useGoogleDns() {
+  // Windows uses the system resolver unless the built-in one is turned on.
+  // Secure mode keeps file and image lookups on Google (8.8.8.8 / 8.8.4.4)
+  // instead of falling back to the local DNS that fails for cPanel.
+  app.configureHostResolver({
+    enableBuiltInResolver: true,
+    secureDnsMode: "secure",
+    secureDnsServers: ["https://dns.google/dns-query"],
+  });
+}
+
 if (gotLock) app.whenReady().then(() => {
+  useGoogleDns();
   configureNotificationPermissions();
   registerSystemEvents();
   initAutoUpdate();
